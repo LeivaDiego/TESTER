@@ -1,7 +1,3 @@
-/**
-*Arturo Argueta 21527
-*Daniel EStrada 
-*/
 #include <chrono>
 #include <iostream>
 #include <netinet/in.h>
@@ -15,32 +11,17 @@
 #include <semaphore.h>
 #include "protocol.pb.h"
 using namespace std;
-// to compile:
-// g++ server.cpp protocol.pb.cc -o serverx -lprotobuf -lpthread
 
-//estructura para modelar al cliente y facilitar el manejo de su información
 struct Cli{
     int socket;
     string username;
     char ip[INET_ADDRSTRLEN]; //16 bits
     string status;
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastActivityTime; // Nuevo campo para almacenar el tiempo de la última actividad
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastActivityTime;
 };
 
-//all the clients en un "diccionario"
 unordered_map<string,Cli*> servingCLients;
 
-/**
- * Devuelve error al socket indicado
- * socketId: int -> del socket a decvolver 
- * errorMessage: stirng -> mensaje de error a devolver
- * optionHandler: int -> el tipo de request que se estaba realizando
- * >1: Registro de Usuarios
- * >2: Usuarios Conectados
- * >3: Cambio de Estado
- * >4: Mensajes
- * >5: Informacion de un usuario en particular
-*/
 void ErrorResponse(int optionHandled , int socketID , string errorMessage){
     char buff[8192];
     chat::ServerResponse *errorRes = new chat::ServerResponse();
@@ -177,8 +158,10 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Cli& 
             string msgServer;
             response.SerializeToString(&msgServer);
             char buffer[8192];
-            strcpy(buffer, msgServer.c_str());
-            send(i.second->socket, buffer, msgServer.size() + 1, 0);
+            // Usar memcpy en lugar de strcpy
+            memcpy(buffer, msgServer.data(), msgServer.size());
+            buffer[msgServer.size()] = '\0'; // Asegurar que el buffer es null-terminated
+            send(i.second->socket, buffer, msgServer.size(), 0);
         }
         std::cout << "\nSUCCESS: General message sent by " << request.messagecommunication().sender() << "\n";
     } else { // Mensaje directo
@@ -199,8 +182,10 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Cli& 
             string msgServer;
             response.SerializeToString(&msgServer);
             char buffer[8192];
-            strcpy(buffer, msgServer.c_str());
-            send(recipient->second->socket, buffer, msgServer.size() + 1, 0);
+            // Usar memcpy en lugar de strcpy
+            memcpy(buffer, msgServer.data(), msgServer.size());
+            buffer[msgServer.size()] = '\0'; // Asegurar que el buffer es null-terminated
+            send(recipient->second->socket, buffer, msgServer.size(), 0);
             std::cout << "\nSUCCESS: Private message sent by " << request.messagecommunication().sender() << " to " << request.messagecommunication().recipient() << "\n";
         } else {
             ErrorResponse(4, socket, "ERROR: recipient doesn't exist");
@@ -208,6 +193,7 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Cli& 
         }
     }
 }
+
 
 void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cli& client) {
     servingCLients[client.username]->lastActivityTime = std::chrono::high_resolution_clock::now();
