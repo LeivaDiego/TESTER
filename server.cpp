@@ -228,7 +228,7 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
         char buffer[8192];
         strcpy(buffer, msgServer.c_str());
         send(socket, buffer, msgServer.size() + 1, 0);
-        std::cout << "\n__USER INFO SOLICITUDE__\nUser: " << client.username << " requested info of ->" << request.users().user() << "\nSUCCESS: userinfo of " << request.users.user() << std::endl;
+        std::cout << "\n__USER INFO SOLICITUDE__\nUser: " << client.username << " requested info of ->" << request.users().user() << "\nSUCCESS: userinfo of " << request.users().user() << std::endl;
     } else {
         // El usuario no existe
         ErrorResponse(5, socket, "ERROR: user doesn't exist");
