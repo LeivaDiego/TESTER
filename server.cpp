@@ -1,45 +1,60 @@
+#include <arpa/inet.h>
 #include <chrono>
 #include <iostream>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <pthread.h>
 #include "protocol.pb.h"
-
 
 using namespace std;
 
-struct Cli{
-    int socket;
-    string username;
-    char ip[INET_ADDRSTRLEN]; //16 bits
-    string status;
-    chrono::time_point<chrono::high_resolution_clock> lastActivityTime;
+// Esta estructura se encarga de modelar a un cliente conectado
+struct Client{
+    int socket;                 // Socket del cliente
+    string username;            // Nombre de usuario
+    char ip[INET_ADDRSTRLEN];   // Dirección IP del cliente
+    string status;              // Estado del cliente
+    chrono::time_point<chrono::high_resolution_clock> latest_status; // Última actividad del cliente 
 };
 
-unordered_map<string,Cli*> servingCLients;
+// Estructura que almacena a los clientes conectados
+unordered_map<string,Client*> servingCLients;
 
-void ErrorResponse(int optionHandled , int socketID , string errorMessage){
-    char buff[8192];
-    chat::ServerResponse *errorRes = new chat::ServerResponse();
-    string msSerialized;
-    errorRes->set_option(optionHandled);
-    errorRes->set_code(500);
-    errorRes->set_servermessage(errorMessage);
-    //calcular tamaño del buffer a emplear
-    errorRes->SerializeToString(&msSerialized);
-    strcpy(buff, msSerialized.c_str());
-    if(!send(socketID, buff, msSerialized.size() + 1, 0)){cout<<"E: HANDLER FAILED"<<endl;};
-}
+/*  Función que se encarga de enviar una respuesta de error al cliente
+    Args:
+        selected_opt: opción seleccionada
+        socket_num: socket del cliente
+        error_desc: descripción del error
+*/
+void ErrorResponse(int selected_opt , int socket_num , string error_desc){
+    char buffer[8192];
+    // Crear la respuesta de error
+    chat::ServerResponse *error_response = new chat::ServerResponse();
+    string serial_msg;
+    // Asignar valores a la respuesta de error
+    error_response->set_option(selected_opt);
+    error_response->set_code(500);
+    error_response->set_servermessage(error_desc);
+    error_response->SerializeToString(&serial_msg);
+    // Copiar la respuesta de error al buffer
+    strcpy(buffer, serial_msg.c_str());
+    // Enviar la respuesta de error al cliente
+    int bytes_sent = send(socket_num, buffer, serial_msg.size() + 1, 0);
+    // Verificar si hubo un error al enviar la respuesta
+    if(!bytes_sent){
+        cout<<"Fallo en el Controlador de errores"<<endl;
+        };
+    }
 
-void handleUserRegistration(int socket, const chat::ClientPetition& request, Cli& client, Cli& newClient) {
-    cout << endl << "__RECEIVED INFO__\nUsername: " << request.registration().username() << "\t\tip: " << request.registration().ip();
+void registerUser(int socket, const chat::ClientPetition& request, Client& client, Client& new_client) {
+    cout << string(10, '-') << "DATA ENTRANTE" << string(10, '-') << endl;
+    cout << "\t Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
     if (servingCLients.count(request.registration().username()) > 0) {
-        cout << endl << "ERROR: Username already exists" << endl;
-        ErrorResponse(1, socket, "ERROR: Username already exists");
+        cout << endl << "FALLO: El usuario ya existe" << endl;
+        ErrorResponse(1, socket, "ERROR: No se puede registrar, porque el usuario ya existe");
         return;
     }
 
@@ -62,20 +77,20 @@ void handleUserRegistration(int socket, const chat::ClientPetition& request, Cli
     client.username = request.registration().username();
     client.socket = socket;
     client.status = "activo";
-    strcpy(client.ip, newClient.ip);
+    strcpy(client.ip, new_client.ip);
     servingCLients[client.username] = &client;
-    servingCLients[client.username]->lastActivityTime = chrono::high_resolution_clock::now();
+    servingCLients[client.username]->latest_status = chrono::high_resolution_clock::now();
     servingCLients[client.username]->status = "activo";
 }
 
-void handleUserQuery(int socket, const chat::ClientPetition& request, Cli& client) {
-    servingCLients[client.username]->lastActivityTime = chrono::high_resolution_clock::now();
+void handleUserQuery(int socket, const chat::ClientPetition& request, Client& client) {
+    servingCLients[client.username]->latest_status = chrono::high_resolution_clock::now();
     servingCLients[client.username]->status = "activo";
     if (request.users().user().empty() || !request.users().has_user()) {  // empty or it has no parameter
         auto *users = new chat::ConnectedUsersResponse();
         auto currentTime = chrono::high_resolution_clock::now();
         for (auto &i : servingCLients) {
-            auto elapsedTime = chrono::duration_cast<chrono::seconds>(currentTime - i.second->lastActivityTime);
+            auto elapsedTime = chrono::duration_cast<chrono::seconds>(currentTime - i.second->latest_status);
             if (elapsedTime.count() >= 5) {
                 // Cambiar el estado del cliente a "inactivo"
                 i.second->status = "inactivo";
@@ -104,8 +119,8 @@ void handleUserQuery(int socket, const chat::ClientPetition& request, Cli& clien
     }
 }
 
-void handleChangeStatus(int socket, const chat::ClientPetition& request, Cli& client) {
-    servingCLients[client.username]->lastActivityTime = chrono::high_resolution_clock::now();
+void handleChangeStatus(int socket, const chat::ClientPetition& request, Client& client) {
+    servingCLients[client.username]->latest_status = chrono::high_resolution_clock::now();
     servingCLients[client.username]->status = "activo";
 
     if (servingCLients.find(request.change().username()) != servingCLients.end()) {
@@ -134,8 +149,8 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Cli& cl
     }
 }
 
-void handleMessageSending(int socket, const chat::ClientPetition& request, Cli& client) {
-    servingCLients[client.username]->lastActivityTime = chrono::high_resolution_clock::now();
+void handleMessageSending(int socket, const chat::ClientPetition& request, Client& client) {
+    servingCLients[client.username]->latest_status = chrono::high_resolution_clock::now();
     servingCLients[client.username]->status = "activo";
 
     if (!request.messagecommunication().has_recipient() || request.messagecommunication().recipient() == "everyone") { // Chat global
@@ -195,15 +210,15 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Cli& 
 }
 
 
-void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cli& client) {
-    servingCLients[client.username]->lastActivityTime = chrono::high_resolution_clock::now();
+void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Client& client) {
+    servingCLients[client.username]->latest_status = chrono::high_resolution_clock::now();
     servingCLients[client.username]->status = "activo";
 
     if (servingCLients.find(request.users().user()) != servingCLients.end()) {
         // Obtener el valor con la llave (username)
         auto currentUser = servingCLients[request.users().user()];
         auto currentTime = chrono::high_resolution_clock::now();
-        auto elapsedTime = chrono::duration_cast<chrono::seconds>(currentTime - currentUser->lastActivityTime);
+        auto elapsedTime = chrono::duration_cast<chrono::seconds>(currentTime - currentUser->latest_status);
 
         if (elapsedTime.count() >= 5) {
             // Cambiar el estado del cliente a "inactivo"
@@ -237,8 +252,8 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
 }
 
 void *requestsHandler(void *params) {
-    struct Cli client;
-    struct Cli *newClient = (struct Cli *)params; 
+    struct Client client;
+    struct Client *newClient = (struct Client *)params; 
     int socket = newClient->socket; 
     char buffer[8192];
 
@@ -262,7 +277,7 @@ void *requestsHandler(void *params) {
         }
         switch (request->option()) {
             case 1:
-                handleUserRegistration(socket, *request, client, *newClient);
+                registerUser(socket, *request, client, *newClient);
                 break;
             case 2:
                 handleUserQuery(socket, *request, client);
@@ -342,7 +357,7 @@ int main(int argc, char const* argv[]){
         
 	    
         //si falla el socket, un hilo se encargará del manejo de las requests del user
-        struct Cli newClient;
+        struct Client newClient;
         newClient.socket = new_req_ip;
         inet_ntop(AF_INET, &(incomminig_req.sin_addr), newClient.ip, INET_ADDRSTRLEN);
         pthread_t thread_id;
