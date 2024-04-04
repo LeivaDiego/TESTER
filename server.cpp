@@ -36,7 +36,7 @@ void ErrorResponse(int selected_option , int socket_id , string error_descriptio
 }
 
 void handleUserRegistration(int socket, const chat::ClientPetition& request, Client& client, Client& new_client) {
-    cout << string(10, "-") << "DATA ENTRANTE" << endl;
+    cout << "----------" << "DATA ENTRANTE" << "----------" << endl;
     cout << "\t Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
     if (connected_clients.count(request.registration().username()) > 0) {
         cout << endl << "FALLO: usuario ya existe" << endl;
