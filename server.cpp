@@ -15,7 +15,7 @@ using namespace std;
 struct Client{
     int socket;
     string username;
-    char ip[INET_ADDRSTRLEN]; //16 bits
+    char ip[INET_ADDRSTRLEN];
     string status;
     chrono::time_point<chrono::high_resolution_clock> latest_activity;
 };
@@ -29,7 +29,6 @@ void ErrorResponse(int selected_option , int socket_id , string error_descriptio
     error_response->set_option(selected_option);
     error_response->set_code(500);
     error_response->set_servermessage(error_description);
-    //calcular tamaño del buffer a emplear
     error_response->SerializeToString(&serialized_message);
     strcpy(msg_buffer, serialized_message.c_str());
     if(!send(socket_id, msg_buffer, serialized_message.size() + 1, 0)){cout<<"Fallo en el controlador de errores"<<endl;};
@@ -37,10 +36,10 @@ void ErrorResponse(int selected_option , int socket_id , string error_descriptio
 
 void handleUserRegistration(int socket, const chat::ClientPetition& request, Client& client, Client& new_client) {
     cout << "----------" << "DATA ENTRANTE" << "----------" << endl;
-    cout << "\t Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
+    cout << "Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
     if (connected_clients.count(request.registration().username()) > 0) {
         cout << endl << "FALLO: usuario ya existe" << endl;
-        ErrorResponse(1, socket, "ERROR: El usuario ya existe");
+        ErrorResponse(1, socket, "ERROR: El usuario ya existe en el servidor");
         return;
     }
 
@@ -88,8 +87,8 @@ void handleUserQuery(int socket, const chat::ClientPetition& request, Client& cl
         }
 
         chat::ServerResponse response;
-        response.set_servermessage("info of all connected clients");
-        response.set_allocated_connectedusers(users);  // La respuesta se encarga de liberar 'users'
+        response.set_servermessage("Informacion de todos los usuarios conectados");
+        response.set_allocated_connectedusers(users);
         response.set_option(2);
         response.set_code(200);
 
@@ -98,10 +97,10 @@ void handleUserQuery(int socket, const chat::ClientPetition& request, Client& cl
         char buffer[8192];
         strcpy(buffer, server_message.c_str());
         send(socket, buffer, server_message.size() + 1, 0);
-        cout << "User:" << client.username << " requested all connected";
+        cout << "Usuario:" << client.username << " solicito la informacion de todos los usuarios conectados" << endl;
     } else {
-        ErrorResponse(2, socket, "ERROR: can't specify a user when asking all");
-        cout << "E: User:" << client.username << " requested all with wrong args";
+        ErrorResponse(2, socket, "ERROR: no se debe especificar un usuario si se desea un listado general");
+        cout << "FALLO: El usuario " << client.username << " solicito listado de informacion general con parametros incorrectos" << endl;
     }
 }
 
@@ -112,7 +111,7 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Client&
     if (connected_clients.find(request.change().username()) != connected_clients.end()) {
         // Actualizar el estado del usuario
         connected_clients[request.change().username()]->status = request.change().status();
-        cout << "User: " << client.username << " status has changed successfully\n";
+        cout << "Usuario: " << client.username << " cambio su status" << endl;
 
         // Crear la respuesta
         chat::ChangeStatus *user_status = new chat::ChangeStatus();
@@ -121,7 +120,7 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Client&
 
         chat::ServerResponse response;
         response.set_allocated_change(user_status); // La respuesta se encarga de liberar 'user_status'
-        response.set_servermessage("status changed");
+        response.set_servermessage("status actualizado");
         response.set_code(200);
         response.set_option(3);
 
@@ -131,7 +130,7 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Client&
         strcpy(buffer, server_message.c_str());
         send(socket, buffer, server_message.size() + 1, 0);
     } else {
-        ErrorResponse(3, socket, "User:" + request.change().username() + " doesn't exist");
+        ErrorResponse(3, socket, "Usuario:" + request.change().username() + " no existe");
     }
 }
 
@@ -140,7 +139,8 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Clien
     connected_clients[client.username]->status = "activo";
 
     if (!request.messagecommunication().has_recipient() || request.messagecommunication().recipient() == "everyone") { // Chat global
-        cout << "\n__SENDING GENERAL MESSAGE__\nUser: " << request.messagecommunication().sender() << " is trying to send a general message";
+        cout << "----------"<< "ENVIANDO MENSAJE GRUPAL" << "----------" << endl;
+        cout <<"Usuario: " request.messagecommunication().sender() << " esta enviando un mensaje grupal" << endl;
         for (auto& i : connected_clients) {
             chat::MessageCommunication message;
             if (i.first == request.messagecommunication().sender()) {
@@ -152,21 +152,21 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Clien
             }
             chat::ServerResponse response;
             response.set_allocated_messagecommunication(new chat::MessageCommunication(message));
-            response.set_servermessage("Message sent to general chat");
+            response.set_servermessage("Mensaje enviado al chat grupal");
             response.set_code(200);
             response.set_option(4);
 
             string server_message;
             response.SerializeToString(&server_message);
             char buffer[8192];
-            // Usar memcpy en lugar de strcpy
             memcpy(buffer, server_message.data(), server_message.size());
-            buffer[server_message.size()] = '\0'; // Asegurar que el buffer es null-terminated
+            buffer[server_message.size()] = '\0';
             send(i.second->socket, buffer, server_message.size(), 0);
         }
-        cout << "\nSUCCESS: General message sent by " << request.messagecommunication().sender() << "\n";
-    } else { // Mensaje directo
-        cout << "\n__SENDING PRIVATE MESSAGE__\nUser: " << request.messagecommunication().sender() << " is trying to send a private message to -> " << request.messagecommunication().recipient();
+        cout << "EXITO: Mensaje grupal enviado por: " << request.messagecommunication().sender() << endl;
+    } else {
+        cout << "----------" << "ENVIANDO MENSAJE DIRECTO" << "----------" << endl;
+        cout << "Usuario: " << request.messagecommunication().sender() << " esta enviando mensaje directo a: " << request.messagecommunication().recipient();
         auto recipient = connected_clients.find(request.messagecommunication().recipient());
         if (recipient != connected_clients.end()) {
             chat::MessageCommunication message;
@@ -176,21 +176,20 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Clien
 
             chat::ServerResponse response;
             response.set_allocated_messagecommunication(new chat::MessageCommunication(message));
-            response.set_servermessage("Private message sent");
+            response.set_servermessage("Mensaje directo enviado");
             response.set_code(200);
             response.set_option(4);
 
             string server_message;
             response.SerializeToString(&server_message);
             char buffer[8192];
-            // Usar memcpy en lugar de strcpy
             memcpy(buffer, server_message.data(), server_message.size());
-            buffer[server_message.size()] = '\0'; // Asegurar que el buffer es null-terminated
+            buffer[server_message.size()] = '\0';
             send(recipient->second->socket, buffer, server_message.size(), 0);
-            cout << "\nSUCCESS: Private message sent by " << request.messagecommunication().sender() << " to " << request.messagecommunication().recipient() << "\n";
+            cout << "EXITO: Mensaje directo enviado por: " << request.messagecommunication().sender() << " a: " << request.messagecommunication().recipient() << endl;
         } else {
-            ErrorResponse(4, socket, "ERROR: recipient doesn't exist");
-            cout << "E: " + request.messagecommunication().sender() + " tried to send to a non-existing user: " + request.messagecommunication().recipient() << std::endl;
+            ErrorResponse(4, socket, "ERROR: El destinatario no existe");
+            cout << "FALLO: " + request.messagecommunication().sender() + " intento enviar mensaje directo a usuario inexistente: " + request.messagecommunication().recipient() << endl;
         }
     }
 }
@@ -211,7 +210,7 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
             current_user->status = "inactivo";
         }
 
-        cout << "Delta time: " << duration.count() << " user: " << request.users().user() << endl;
+        cout << "Cambio de tiempo: " << duration.count() << " Usuario: " << request.users().user() << endl;
 
         chat::UserInfo user_data;
         user_data.set_username(current_user->username);
@@ -220,7 +219,7 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
 
         chat::ServerResponse response;
         response.set_allocated_userinforesponse(new chat::UserInfo(user_data));
-        response.set_servermessage("SUCCESS: userinfo of " + request.users().user());
+        response.set_servermessage("EXITO: informacion del usuario: " + request.users().user());
         response.set_code(200);
         response.set_option(5);
 
@@ -229,11 +228,12 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
         char buffer[8192];
         strcpy(buffer, server_message.c_str());
         send(socket, buffer, server_message.size() + 1, 0);
-        cout << "\n__USER INFO SOLICITUDE__\nUser: " << client.username << " requested info of ->" << request.users().user() << "\nSUCCESS: userinfo of " << request.users().user() << std::endl;
+        cout << "----------" << "SOLICITUD DE INFORMACION DE USUARIO" << "----------" << endl; 
+        cout << "Usuario: " << client.username << " solicito informacion del usuario: " << request.users().user() << endl;
+        cout << "EXITO: informacion de usuario: " << request.users().user() << endl;
     } else {
-        // El usuario no existe
-        ErrorResponse(5, socket, "ERROR: user doesn't exist");
-        cout << "\n__USER INFO SOLICITUDE__\nUser: " << client.username << " requested info of ->" << request.users().user() << "\nERROR: userinfo of " << request.users().user() << std::endl;
+        ErrorResponse(5, socket, "ERROR: El usuario solicitado no existe");
+        cout << "FALLO: solicitud de informacion de usuario inexistente: " << request.users().user() << endl;
     }
 }
 
@@ -252,14 +252,14 @@ void *requestsHandler(void *args) {
         int bytes_received = recv(socket, buffer, 8192, 0);
         if (bytes_received <= 0) {
             connected_clients.erase(client.username);
-            cout << "User: " << client.username << " lost connection or logged out, removed from session" << endl;
+            cout << "Usuario: " << client.username << " cerro sesion, eliminado del servidor" << endl;
             break;
         }
         if (!request->ParseFromString(buffer)) {
-            cout << "Failed to parse" << endl;
+            cout << "FALLO: No se pudo interpretar el string" << endl;
             break;
         } else {
-            cout << "Option received:" << request->option() << endl;
+            cout << "Opcion seleccionada:" << request->option() << endl;
         }
         switch (request->option()) {
             case 1:
@@ -291,7 +291,7 @@ int main(int argc, char const* argv[]){
     //verificar versiión de protobuf para evitar errores
     GOOGLE_PROTOBUF_VERIFY_VERSION;
     if (argc != 2){
-        cout << "NO PORT DECLARED: server <port>" << endl;
+        cout << "ERROR: No se declaro un puerto" << endl;
         return 1;
     }
     long port = strtol(argv[1], NULL, 10);
@@ -306,27 +306,27 @@ int main(int argc, char const* argv[]){
 
     // si hubo error al crear el socket para el cliente
     if ((socket_desc = socket(AF_INET, SOCK_STREAM, 0)) == -1){
-        cout << "ERROR: create socket" << endl;
+        cout << "ERROR: No se pudo crear el socket" << endl;
         return 1;
     }
 
     // si hubo error al crear el socket para el cliente y enlazar ip
     if (bind(socket_desc, (struct sockaddr *)&server, sizeof(server)) == -1){
         close(socket_desc);
-        cout << "ERROR: bind IP to socket" << endl;
+        cout << "ERROR: No se pudo enlazar la IP al Socket" << endl;
         return 2;
     }
 	
     // si hubo error al crear el socket para esperar respuestas
     if (listen(socket_desc, 5) == -1){
         close(socket_desc);
-        cout << "ERROR: listen socket" << endl;
+        cout << "ERROR: No se pudo recibir solicitud del socket" << endl;
         return 3;
     }
 
 
     // si no hubo errores se puede proceder con el listen del server
-    cout << "SUCCESS: listening on port-> " << port << endl;
+    cout << "EXITO: Esperando solicitudes en el puerto: " << port << endl;
 	
     while (1){
 	    
@@ -336,10 +336,9 @@ int main(int argc, char const* argv[]){
 	    
         // si hubo error al crear el socket para el cliente
         if (request_ip == -1){
-            perror("ERROR: accept socket incomming connection\n");
+            cout << "ERROR: No se pudo aceptar la conexion entrante al socket" << endl;
             continue;
         }
-        
         
 	    
         //si falla el socket, un hilo se encargará del manejo de las requests del user
