@@ -32,21 +32,22 @@ void ErrorResponse(int selected_option , int socket_id , string error_descriptio
     //calcular tamaño del buffer a emplear
     error_response->SerializeToString(&serialized_message);
     strcpy(msg_buffer, serialized_message.c_str());
-    if(!send(socket_id, msg_buffer, serialized_message.size() + 1, 0)){cout<<"E: HANDLER FAILED"<<endl;};
+    if(!send(socket_id, msg_buffer, serialized_message.size() + 1, 0)){cout<<"Fallo en el controlador de errores"<<endl;};
 }
 
 void handleUserRegistration(int socket, const chat::ClientPetition& request, Client& client, Client& new_client) {
-    cout << endl << "__RECEIVED INFO__\nUsername: " << request.registration().username() << "\t\tip: " << request.registration().ip();
+    cout << string(10, "-") << "DATA ENTRANTE" << endl;
+    cout << "\t Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
     if (connected_clients.count(request.registration().username()) > 0) {
-        cout << endl << "ERROR: Username already exists" << endl;
-        ErrorResponse(1, socket, "ERROR: Username already exists");
+        cout << endl << "FALLO: usuario ya existe" << endl;
+        ErrorResponse(1, socket, "ERROR: El usuario ya existe");
         return;
     }
 
     // Crear la respuesta del servidor
     chat::ServerResponse response;
     response.set_option(1);
-    response.set_servermessage("SUCCESS: register");
+    response.set_servermessage("EXITO: Registro exitoso");
     response.set_code(200);
 
     // Serializar y enviar la respuesta
@@ -56,7 +57,7 @@ void handleUserRegistration(int socket, const chat::ClientPetition& request, Cli
     strcpy(buffer, server_message.c_str());
     send(socket, buffer, server_message.size() + 1, 0);
 
-    cout << endl << "SUCCESS: The user " << request.registration().username() << " was added with the socket: " << socket << endl;
+    cout << endl << "EXITO: El usuario " << request.registration().username() << " se agrego al sistema con el socket: " << socket << endl;
 
     // Actualizar la información del cliente
     client.username = request.registration().username();
