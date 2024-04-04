@@ -12,6 +12,7 @@
 
 using namespace std;
 
+// Estructura que modela la data de un cliente
 struct Client{
     int socket;
     string username;
@@ -20,8 +21,10 @@ struct Client{
     chrono::time_point<chrono::high_resolution_clock> latest_activity;
 };
 
+// Estructura clave-valor para almacenar los clientes conectados
 unordered_map<string,Client*> connected_clients;
 
+// Función para enviar mensajes de error al cliente
 void ErrorResponse(int selected_option , int socket_id , string error_description){
     char msg_buffer[8192];
     chat::ServerResponse *error_response = new chat::ServerResponse();
@@ -34,6 +37,7 @@ void ErrorResponse(int selected_option , int socket_id , string error_descriptio
     if(!send(socket_id, msg_buffer, serialized_message.size() + 1, 0)){cout<<"Fallo en el controlador de errores"<<endl;};
 }
 
+// Función para manejar el registro de un nuevo usuario
 void handleUserRegistration(int socket, const chat::ClientPetition& request, Client& client, Client& new_client) {
     cout << "----------" << "DATA ENTRANTE" << "----------" << endl;
     cout << "Usuario: " << request.registration().username() << "\t IP: " << request.registration().ip();
@@ -68,16 +72,17 @@ void handleUserRegistration(int socket, const chat::ClientPetition& request, Cli
     connected_clients[client.username]->status = "activo";
 }
 
+// Función para manejar la solicitud de información de todos los usuarios
 void handleUserQuery(int socket, const chat::ClientPetition& request, Client& client) {
     connected_clients[client.username]->latest_activity = chrono::high_resolution_clock::now();
     connected_clients[client.username]->status = "activo";
-    if (request.users().user().empty() || !request.users().has_user()) {  // empty or it has no parameter
+    if (request.users().user().empty() || !request.users().has_user()) { 
         auto *users = new chat::ConnectedUsersResponse();
         auto curr_time = chrono::high_resolution_clock::now();
         for (auto &i : connected_clients) {
             auto duration = chrono::duration_cast<chrono::seconds>(curr_time - i.second->latest_activity);
-            if (duration.count() >= 5) {
-                // Cambiar el estado del cliente a "inactivo"
+            if (duration.count() >= 10) {
+                // Cambiar el estado del cliente a inactivo si se pasa de 10 segundos
                 i.second->status = "inactivo";
             }
             auto *user_input = users->add_connectedusers();
@@ -86,12 +91,14 @@ void handleUserQuery(int socket, const chat::ClientPetition& request, Client& cl
             user_input->set_ip(i.second->ip);
         }
 
+        // Crear la respuesta del servidor
         chat::ServerResponse response;
         response.set_servermessage("Informacion de todos los usuarios conectados");
         response.set_allocated_connectedusers(users);
         response.set_option(2);
         response.set_code(200);
 
+        // Serializar y enviar la respuesta
         string server_message;
         response.SerializeToString(&server_message);
         char buffer[8192];
@@ -104,6 +111,7 @@ void handleUserQuery(int socket, const chat::ClientPetition& request, Client& cl
     }
 }
 
+// Función para manejar el cambio de estado de un usuario
 void handleChangeStatus(int socket, const chat::ClientPetition& request, Client& client) {
     connected_clients[client.username]->latest_activity = chrono::high_resolution_clock::now();
     connected_clients[client.username]->status = "activo";
@@ -113,17 +121,19 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Client&
         connected_clients[request.change().username()]->status = request.change().status();
         cout << "Usuario: " << client.username << " cambio su status" << endl;
 
-        // Crear la respuesta
+        // Cambiar el estado del usuario
         chat::ChangeStatus *user_status = new chat::ChangeStatus();
         user_status->set_username(request.change().username());
         user_status->set_status(request.change().status());
 
+        // Crear la respuesta del servidor
         chat::ServerResponse response;
-        response.set_allocated_change(user_status); // La respuesta se encarga de liberar 'user_status'
+        response.set_allocated_change(user_status);
         response.set_servermessage("status actualizado");
         response.set_code(200);
         response.set_option(3);
 
+        // Serializar y enviar la respuesta
         string server_message;
         response.SerializeToString(&server_message);
         char buffer[8192];
@@ -134,10 +144,13 @@ void handleChangeStatus(int socket, const chat::ClientPetition& request, Client&
     }
 }
 
+
+// Función para manejar el envío de mensajes entre usuarios
 void handleMessageSending(int socket, const chat::ClientPetition& request, Client& client) {
     connected_clients[client.username]->latest_activity = chrono::high_resolution_clock::now();
     connected_clients[client.username]->status = "activo";
 
+    // Verificar si el mensaje es grupal
     if (!request.messagecommunication().has_recipient() || request.messagecommunication().recipient() == "everyone") { // Chat global
         cout << "----------"<< "ENVIANDO MENSAJE GRUPAL" << "----------" << endl;
         cout <<"Usuario: " request.messagecommunication().sender() << " esta enviando un mensaje grupal" << endl;
@@ -164,22 +177,27 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Clien
             send(i.second->socket, buffer, server_message.size(), 0);
         }
         cout << "EXITO: Mensaje grupal enviado por: " << request.messagecommunication().sender() << endl;
-    } else {
+    } 
+    // Mensaje directo
+    else { 
         cout << "----------" << "ENVIANDO MENSAJE DIRECTO" << "----------" << endl;
         cout << "Usuario: " << request.messagecommunication().sender() << " esta enviando mensaje directo a: " << request.messagecommunication().recipient();
         auto recipient = connected_clients.find(request.messagecommunication().recipient());
         if (recipient != connected_clients.end()) {
+            // Crear el mensaje directo
             chat::MessageCommunication message;
             message.set_sender(client.username);
             message.set_recipient(request.messagecommunication().recipient());
             message.set_message(request.messagecommunication().message());
-
+            
+            // Crear la respuesta del servidor
             chat::ServerResponse response;
             response.set_allocated_messagecommunication(new chat::MessageCommunication(message));
             response.set_servermessage("Mensaje directo enviado");
             response.set_code(200);
             response.set_option(4);
 
+            // Serializar y enviar la respuesta
             string server_message;
             response.SerializeToString(&server_message);
             char buffer[8192];
@@ -194,35 +212,40 @@ void handleMessageSending(int socket, const chat::ClientPetition& request, Clien
     }
 }
 
-
+// Función para manejar la solicitud de información de un usuario específico
 void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Client& client) {
     connected_clients[client.username]->latest_activity = chrono::high_resolution_clock::now();
     connected_clients[client.username]->status = "activo";
 
+    // Verificar si el usuario solicitado existe
     if (connected_clients.find(request.users().user()) != connected_clients.end()) {
-        // Obtener el valor con la llave (username)
+        // Obtener el valor con el nombre de usuario
         auto current_user = connected_clients[request.users().user()];
         auto curr_time = chrono::high_resolution_clock::now();
         auto duration = chrono::duration_cast<chrono::seconds>(curr_time - current_user->latest_activity);
 
-        if (duration.count() >= 5) {
+        // Cambiar el estado del cliente a inactivo si ha pasado más de 10 segundos
+        if (duration.count() >= 10) {
             // Cambiar el estado del cliente a "inactivo"
             current_user->status = "inactivo";
         }
 
         cout << "Cambio de tiempo: " << duration.count() << " Usuario: " << request.users().user() << endl;
 
+        // Crear el mensaje de respuesta
         chat::UserInfo user_data;
         user_data.set_username(current_user->username);
         user_data.set_ip(current_user->ip);
         user_data.set_status(current_user->status);
-
+        
+        // Crear la respuesta del servidor
         chat::ServerResponse response;
         response.set_allocated_userinforesponse(new chat::UserInfo(user_data));
         response.set_servermessage("EXITO: informacion del usuario: " + request.users().user());
         response.set_code(200);
         response.set_option(5);
 
+        // Serializar y enviar la respuesta
         string server_message;
         response.SerializeToString(&server_message);
         char buffer[8192];
@@ -237,30 +260,39 @@ void handleUserSpecificQuery(int socket, const chat::ClientPetition& request, Cl
     }
 }
 
-void *requestsHandler(void *args) {
+// Función para manejar las solicitudes de los clientes
+void *handleRequests(void *args) {
     struct Client client;
     struct Client *new_client = (struct Client *)args; 
     int socket = new_client->socket; 
     char buffer[8192];
 
-    // Server Structs
+    // Estrucutra para almacenar la solicitud del cliente en el servidor
     string server_message;
     chat::ClientPetition *request = new chat::ClientPetition();
     chat::ServerResponse *response = new chat::ServerResponse();
-    while (1) {
+    
+    // Bucle para manejar las solicitudes del cliente
+    while (true) {
         response->Clear(); // Limpiar la response enviada
         int bytes_received = recv(socket, buffer, 8192, 0);
+
+        // Verificar si el cliente cerro la conexión
         if (bytes_received <= 0) {
             connected_clients.erase(client.username);
             cout << "Usuario: " << client.username << " cerro sesion, eliminado del servidor" << endl;
             break;
         }
+
+        // Verificar si se pudo interpretar el string
         if (!request->ParseFromString(buffer)) {
             cout << "FALLO: No se pudo interpretar el string" << endl;
             break;
         } else {
             cout << "Opcion seleccionada:" << request->option() << endl;
         }
+
+        // Manejar la solicitud del cliente
         switch (request->option()) {
             case 1:
                 handleUserRegistration(socket, *request, client, *new_client);
@@ -294,6 +326,8 @@ int main(int argc, char const* argv[]){
         cout << "ERROR: No se declaro un puerto" << endl;
         return 1;
     }
+
+    // Crear el socket para el servidor 
     long port = strtol(argv[1], NULL, 10);
     sockaddr_in server, incoming_request;
     socklen_t request_size;
@@ -304,54 +338,49 @@ int main(int argc, char const* argv[]){
     server.sin_addr.s_addr = INADDR_ANY;
     memset(server.sin_zero, 0, sizeof server.sin_zero);
 
-    // si hubo error al crear el socket para el cliente
+    // Manejar errores en la creación del socket
     if ((socket_desc = socket(AF_INET, SOCK_STREAM, 0)) == -1){
         cout << "ERROR: No se pudo crear el socket" << endl;
         return 1;
     }
 
-    // si hubo error al crear el socket para el cliente y enlazar ip
     if (bind(socket_desc, (struct sockaddr *)&server, sizeof(server)) == -1){
         close(socket_desc);
         cout << "ERROR: No se pudo enlazar la IP al Socket" << endl;
         return 2;
     }
 	
-    // si hubo error al crear el socket para esperar respuestas
     if (listen(socket_desc, 5) == -1){
         close(socket_desc);
         cout << "ERROR: No se pudo recibir solicitud del socket" << endl;
         return 3;
     }
 
-
-    // si no hubo errores se puede proceder con el listen del server
+    // Mensaje de éxito al crear el socket
     cout << "EXITO: Esperando solicitudes en el puerto: " << port << endl;
 	
     while (1){
-	    
-        // la funcion accept nos permite ver si se reciben o envian mensajes
+	    //aceptar la solicitud de conexión entrante
         request_size = sizeof incoming_request;
         request_ip = accept(socket_desc, (struct sockaddr *)&incoming_request, &request_size);
-	    
-        // si hubo error al crear el socket para el cliente
+
+        // Manejar errores en la solicitud de conexión
         if (request_ip == -1){
             cout << "ERROR: No se pudo aceptar la conexion entrante al socket" << endl;
             continue;
         }
         
-	    
-        //si falla el socket, un hilo se encargará del manejo de las requests del user
+	    // Crear un nuevo hilo para manejar las solicitudes del cliente
         struct Client new_client;
         new_client.socket = request_ip;
         inet_ntop(AF_INET, &(incoming_request.sin_addr), new_client.ip, INET_ADDRSTRLEN);
         pthread_t thread_id;
         pthread_attr_t attrs;
         pthread_attr_init(&attrs);
-        pthread_create(&thread_id, &attrs, requestsHandler, (void *)&new_client);
+        pthread_create(&thread_id, &attrs, handleRequests, (void *)&new_client);
     }
 	
-    // si hubo error al crear el socket para el cliente
+    // Cerrar el socket y liberar la memoria
     google::protobuf::ShutdownProtobufLibrary();
 	return 0;
 
